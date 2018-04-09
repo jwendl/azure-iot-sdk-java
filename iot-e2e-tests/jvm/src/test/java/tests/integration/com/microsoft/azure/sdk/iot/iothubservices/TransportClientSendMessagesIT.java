@@ -2,6 +2,7 @@ package tests.integration.com.microsoft.azure.sdk.iot.iothubservices;
 
 import com.microsoft.azure.sdk.iot.common.EventCallback;
 import com.microsoft.azure.sdk.iot.common.Success;
+import com.microsoft.azure.sdk.iot.common.iothubservices.SendMessagesCommon;
 import com.microsoft.azure.sdk.iot.device.*;
 import com.microsoft.azure.sdk.iot.service.Device;
 import com.microsoft.azure.sdk.iot.service.IotHubConnectionStringBuilder;
@@ -21,6 +22,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import static com.microsoft.azure.sdk.iot.common.iothubservices.SendMessagesCommon.sendMessagesMultiplex;
 import static com.microsoft.azure.sdk.iot.device.IotHubClientProtocol.AMQPS;
 import static com.microsoft.azure.sdk.iot.device.IotHubClientProtocol.AMQPS_WS;
+import static junit.framework.TestCase.fail;
 
 public class TransportClientSendMessagesIT
 {
@@ -32,7 +34,7 @@ public class TransportClientSendMessagesIT
     private static final Integer MAX_DEVICE_MULTIPLEX = 3;
     private static final Integer NUM_MESSAGES_PER_CONNECTION = 5;
     private static final Integer RETRY_MILLISECONDS = 100;
-    private static final Integer SEND_TIMEOUT_MILLISECONDS = 60000;
+    private static final Integer SEND_TIMEOUT_MILLISECONDS = 90000;
 
     private static Device[] deviceListAmqps = new Device[MAX_DEVICE_MULTIPLEX];
     private static final AtomicBoolean succeed = new AtomicBoolean();
@@ -97,20 +99,24 @@ public class TransportClientSendMessagesIT
                     {
                         msgSend.setProperty("key"+j, "value"+j);
                     }
-                    msgSend.setExpiryTime(5000);
 
                     Success messageSent = new Success();
                     EventCallback callback = new EventCallback(IotHubStatusCode.OK_EMPTY);
                     client.sendEventAsync(msgSend, callback, messageSent);
 
                     Integer waitDuration = 0;
-                    while(!messageSent.getResult())
+                    while(!messageSent.callbackWasFired())
                     {
                         Thread.sleep(RETRY_MILLISECONDS);
                         if ((waitDuration += RETRY_MILLISECONDS) > sendTimeout)
                         {
-                            break;
+                            fail("Timed out waiting for OK_EMPTY response for sent message");
                         }
+                    }
+
+                    if (messageSent.getCallbackStatusCode() != IotHubStatusCode.OK_EMPTY)
+                    {
+                        fail("Unexpected iot hub status code! Expected OK_EMPTY but got " + messageSent.getCallbackStatusCode());
                     }
                 }
                 catch (Exception e)
@@ -178,9 +184,7 @@ public class TransportClientSendMessagesIT
         {
             clientArrayList.add(new DeviceClient(clientConnectionStringArrayList.get(i), transportClient));
         }
-
-        transportClient.open();
-
+        
         for (int i = 0; i < clientArrayList.size(); i++)
         {
             sendMessagesMultiplex(clientArrayList.get(i), IotHubClientProtocol.AMQPS, NUM_MESSAGES_PER_CONNECTION, RETRY_MILLISECONDS, SEND_TIMEOUT_MILLISECONDS);
@@ -201,7 +205,7 @@ public class TransportClientSendMessagesIT
         }
         CountDownLatch cdl = new CountDownLatch(clientArrayList.size());
 
-        transportClient.open();
+        SendMessagesCommon.openTransportClientWithRetry(transportClient);
 
         for (int i = 0; i < clientArrayList.size(); i++)
         {
@@ -219,7 +223,7 @@ public class TransportClientSendMessagesIT
     }
 
     @Test
-    public void sendMessagesOverAmqpsWs() throws URISyntaxException, IOException, InterruptedException
+    public void sendMessagesOverAmqpsWs() throws URISyntaxException, IOException
     {
         TransportClient transportClient = new TransportClient(AMQPS_WS);
         ArrayList<DeviceClient> clientArrayList = new ArrayList<>();
@@ -228,8 +232,6 @@ public class TransportClientSendMessagesIT
         {
             clientArrayList.add(new DeviceClient(clientConnectionStringArrayList.get(i), transportClient));
         }
-
-        transportClient.open();
 
         for (int i = 0; i < clientArrayList.size(); i++)
         {
@@ -252,7 +254,7 @@ public class TransportClientSendMessagesIT
 
         CountDownLatch cdl = new CountDownLatch(clientArrayList.size());
 
-        transportClient.open();
+        SendMessagesCommon.openTransportClientWithRetry(transportClient);
 
         for (int i = 0; i < clientArrayList.size(); i++)
         {
